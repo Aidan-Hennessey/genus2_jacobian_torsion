@@ -20,3 +20,8 @@ K := NumberField(x^2-5);
 JK := BaseChange(J, K);
 TorsionSubgroup(JK);
 ```
+
+Based on (limited) speed testing, the function seems to take on the order of 1 second for reasonable examples.
+There may be significant optimiztions left to make. The function is based on the existing algorithm to compute 
+the torsion subgroup over Q. An outline of that algorithm can be found in 
+[this paper](http://matwbn.icm.edu.pl/ksiazki/aa/aa90/aa9026.pdf) of Stoll.
