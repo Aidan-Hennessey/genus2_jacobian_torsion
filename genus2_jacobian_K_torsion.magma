@@ -1,0 +1,682 @@
+//#########################         NUMBER FIELD HEIGHT BOUNDS           ###########################
+
+// Input: a sequence or set of 2-tuples (item, count) encoding a multiset
+// Output: A sequence obtained by unwrapping the multiset into its individual elements
+MultisetToSequence := function(multiset)
+    items := [];
+    for multiitem in multiset do
+        items := items cat [multiitem[1] : x in [1..multiitem[2]]];
+    end for;
+    return items;
+end function;
+
+// Given a degree 6 polynomial, returns all factorizations of it into cubics
+CubicPairs6 := function(f)
+    P<x> := PolynomialRing(ComplexField(20));
+
+    roots_w_mult := Roots(f);
+    roots := MultisetToSequence(roots_w_mult);
+    
+    pairs := [];
+    for j in [2..5] do
+        for k in [j+1..6] do
+            sigma_f := (x-roots[1])*(x-roots[j])*(x-roots[k]);
+            tau_f, r := Quotrem(f, sigma_f);
+            
+            Append(~pairs, <sigma_f, tau_f>);
+        end for;
+    end for;
+    return pairs;
+end function;
+
+// Given a degree 5 polynomial, returns all factorizations of it into cubics
+CubicPairs5 := function(f)
+    P<x> := PolynomialRing(ComplexField(20));
+    
+    roots_w_mult := Roots(f);
+    roots := MultisetToSequence(roots_w_mult);
+    
+    pairs := [];
+    for i in [1..3] do
+        for j in [i+1..4] do
+            for k in [j+1..5] do
+                sigma_f := (x-roots[i])*(x-roots[j])*(x-roots[k]);
+                tau_f, r := Quotrem(f, sigma_f);
+                Append(~pairs, <sigma_f, tau_f>);
+            end for;
+        end for;
+    end for;
+    return pairs;
+end function;
+
+// This calculates the quantity R which is used in formulas 10.3 and 10.4 of Stoll's paper
+// It miraculously works for both degree 5 and degree 6 polynomials without separate casework
+function PairDiscriminant(pair)
+    // We are going to factor out leading terms to make the two polynomials monic
+    // Starting acc as below counterbalances that normalization appropriately
+    acc := (LeadingCoefficient(pair[2])*LeadingCoefficient(pair[1]))^3;
+    
+    for ai in MultisetToSequence(Roots(pair[1])) do
+        for aj in MultisetToSequence(Roots(pair[2])) do
+            // beta_i=0 terms are skipped in the degree 5 case, but 
+            // *because we normalized to monic*, they would only induce 
+            // multiplication by 1, so that is fine. 
+            acc := acc * (ai-aj); 
+        end for;
+    end for;
+    return acc;
+end function;
+
+
+// Computes the a_(i, {S, S'})'s in equation 7.1 of Stoll's paper, 
+// for a fixed factorization into cubics
+Ai := function(pair)
+    // recall that the index on sigma indicates the power of Z, not the power of X
+    sigma3 := Coefficient(pair[1], 0);
+    sigma2 := Coefficient(pair[1], 1);
+    sigma1 := Coefficient(pair[1], 2);
+    sigma0 := Coefficient(pair[1], 3);
+    tau3 := Coefficient(pair[2], 0);
+    tau2 := Coefficient(pair[2], 1);
+    tau1 := Coefficient(pair[2], 2);
+    tau0 := Coefficient(pair[2], 3);
+    R := PairDiscriminant(pair);
+    
+    a1 := -1/(4*R) * (sigma1*tau0 - sigma0*tau1);
+    a2 := -1/(4*R) * (sigma3*tau0 - sigma0*tau3 + sigma2*tau1 - sigma1*tau2);
+    a3 := -1/(4*R) * (sigma3*tau2 - sigma2*tau3);
+    a4 := -1/(4*R) * (sigma1*sigma3^2*tau0^2*tau2 - sigma0^2*sigma2*tau1*tau3^2 + sigma1*sigma2*tau1*tau2*(sigma3*tau0 - sigma0*tau3)- sigma3*tau3*(sigma1*sigma2*tau0^2 - sigma0^2*tau1*tau2) - sigma1*tau1*(sigma2^2*tau0*tau3 - sigma0*sigma3*tau2^2)- sigma1^2*sigma3*tau0*tau2^2 + sigma0*sigma2^2*tau1^2*tau3 + 4*sigma1*sigma3*tau1*tau3*(sigma1*tau0 - sigma0*tau1)+ sigma2*tau2*(sigma1^2*tau0*tau3 - sigma0*sigma3*tau1^2) - sigma0*tau0*(sigma3^2*tau1*tau2 + tau3^2*sigma1*sigma2)+ sigma0*tau0*(4*sigma3*tau3*(sigma3*tau0 - sigma0*tau3) + 4*sigma2*tau2*(sigma3*tau2 - sigma2*tau3)- 3*sigma3*tau3*(sigma2*tau1 - sigma1*tau2)));
+    
+    return [a1, a2, a3, a4];
+end function;
+
+// Computes the b_({S, S'}, j)'s in formula 7.1
+Bj := function(pair)
+    // recall that the index on sigma indicates the power of Z, not the power of X
+    sigma3 := Coefficient(pair[1], 0);
+    sigma2 := Coefficient(pair[1], 1);
+    sigma1 := Coefficient(pair[1], 2);
+    sigma0 := Coefficient(pair[1], 3);
+    tau3 := Coefficient(pair[2], 0);
+    tau2 := Coefficient(pair[2], 1);
+    tau1 := Coefficient(pair[2], 2);
+    tau0 := Coefficient(pair[2], 3);
+    
+    b0 := -((sigma3*tau0 + sigma0*tau3)^2 + 2*(sigma1*sigma2*tau0*tau3 + sigma0*sigma3*tau1*tau2)+ 3*(sigma1*sigma3*tau0*tau2 + sigma0*sigma2*tau1*tau3) + 5*(sigma2*sigma3*tau0*tau1 + sigma0*sigma1*tau2*tau3));
+    b1 := sigma3*tau1 + sigma1*tau3;
+    b2 := -(sigma3*tau0 + sigma0*tau3);
+    b3 := sigma2*tau0 + sigma0*tau2;
+    b4 := 1;
+    
+    return [b0, b1, b2, b3, b4];
+end function;
+
+BoundFromAisBjs := function(ais, bjs)
+    ibounds := [];
+    for i in [1..4] do
+        ibound := 0;
+        for ssprime in [1..#ais] do
+            bterm := 0;
+            for j in [0..4] do
+                bterm := bterm + Abs(bjs[ssprime][j+1]); // j+1 because magma sequences are 1-indexed
+            end for;
+            bterm := Sqrt(bterm);
+            ibound := ibound + Abs(ais[ssprime][i])*bterm;
+        end for;
+        ibound := ibound^2;
+        Append(~ibounds, ibound);
+    end for;
+    return Max(ibounds);
+end function;
+
+// Complex embeddings of a polynomial f(x) in K[x] for K a number field
+Embeddings := function(f, K)
+    return [PolynomialRing(ComplexField(20))![Conjugate(alpha, i) : alpha in Coefficients(PolynomialRing(K)!f)] : i in [1..Degree(K)]];
+end function;
+
+// Given a degree 5 or 6 polynomial with coefficients in O_K, 
+// computes the contibution of the infinite places of K to the 
+// bound on the naive height of torsion on the Jacobian of the 
+// associated curve
+InfiniteContribution := function(f, K)
+    sum := 0;
+    
+    for f_emb in Embeddings(f, K) do
+    
+        if Degree(f_emb) eq 5 then
+            pairs := CubicPairs5(f_emb);
+        else
+            pairs := CubicPairs6(f_emb);
+        end if;
+
+        AllAs := [];
+        AllBs := [];
+        for pair in pairs do
+            Append(~AllAs, Ai(pair));
+            Append(~AllBs, Bj(pair));
+        end for;
+        
+        sum := sum + Log(BoundFromAisBjs(AllAs, AllBs));
+    end for;
+    
+    return sum;
+end function;
+
+function HeightBound(f, K)
+    return 4/3*Log(2)*Degree(K)-2*Log(Norm(ideal<MaximalOrder(K) | Coefficients(f)>)) + 1/3*Log(Abs(Norm(K!Discriminant(f)))) + 1/3*InfiniteContribution(f, K);
+end function;
+
+//# Consumes a number field K, the norm q of the relevant prime, and the torsion height bound b
+//# Returns an r so that it is sufficient to lift to p^r
+RequiredAccuracy := function(K, q, b)
+    
+    //# absolute degree, rather than degree, is important in case the user constructs K weirdly
+    d := AbsoluteDegree(K);
+    
+    //# Discriminant(K) computes the discriminant of the defining polynomial of K, not of the maximal order >:(
+    disc := Discriminant(MaximalOrder(K));
+    
+    mink := MinkowskiBound(K);
+    
+    //# This is the formula from my paper
+    float_bound := 2*((2*d^2+1.5*d)*Log(2) + Log(AbsoluteValue(disc))/2 + Log(mink) + b)/Log(q);
+    
+    return Ceiling(float_bound);
+end function;
+
+
+
+//########################       TORSION GENERATORS OVER Fq      #################
+
+GetBoundGenerators := function(J, C, f, Rx, R, ell, order, n)
+    for p in PrimesUpTo(n) do
+        if p eq 2 or p eq 3 then
+            continue;
+        end if;
+        for tup in Decomposition(R, p) do
+            pp := tup[1];
+
+            if not((pp in BadPrimes(C)) or (Norm(pp) mod ell eq 0)) then
+                F, Phi := ResidueClassField(pp);
+                Fx<xf> := PolynomialRing(F);
+                PhiTilde := hom<Rx -> Fx | Phi, xf>;
+                fred := PhiTilde(f);
+                Cred := HyperellipticCurve(fred);
+                Jred := Jacobian(Cred);
+                Kumred := KummerSurface(Jred);
+
+                if #Jred mod order eq 0 then
+                    a, b, gens := Sylow(Jred, ell);
+                    gen_images := [<Kumred!g, Order(g)> : g in gens];
+                    
+                    return <pp, Phi, a, b, Jred>; // prime, reduction map mod pp, abstract abelian group, map into Jred, Jred
+                end if;
+
+            end if;
+        end for;
+    end for;
+    print "Uh oh! Didn't achieve our bound!";
+    return [**];
+end function;
+
+// After further iterations of code, this function's name is a slight misnomer.
+// Given a Jacobian J, returns a list of abelian groups with maps to reductions 
+// of J such that, for each ell for which J might have ell-torsion, we return a 
+// reduction J_p for which that possible ell-torsion is achieved, and the ell-torsion
+// subgroup of the reduction. 
+//
+// The arguement n is also provided; this determines how many primes to check
+// to obtain the bound.
+BoundGenerators := function(J, C, f, Rx, R, n)
+    bound := TorsionBound(J, n);
+    ells := [tup[1] : tup in Factorization(bound)];
+    factors := [tup[1]^tup[2] : tup in Factorization(bound)];
+    generators := [**];
+    
+    for i in [1..#ells] do
+        if ells[i] ne 2 then //# we handle 2-torsion separately
+            print("checking for torsion of characteristic");
+            ells[i];
+            Append(~generators, GetBoundGenerators(J, C, f, Rx, R, ells[i], factors[i], n));
+        end if;
+    end for;
+    return generators;
+end function;
+
+
+//##################################    HENSEL LIFTS     ###############################
+
+//# Given a positive integer n not congruent to 0 mod prime p of a number field K, 
+//# return an integer a such that na is congruent to -1 mod p.
+IntegerNegativeInverse := function(n, p)
+    //# Since Norm(p) is a power of char p, we can just do things mod Norm(p)
+    Zmodp := GF(Norm(p));
+    return Integers()!(-(Zmodp!n)^(-1));
+end function;
+
+// FINE, I'll do it myself
+HenselLift := function(f, x)
+    if IsZero(Evaluate(f, x)) then
+        return x;
+    end if;
+    
+    assert Valuation(Evaluate(f, x)) gt 0;
+    assert Valuation(Evaluate(Derivative(f), x)) eq 0;
+    
+    xprime := x - Evaluate(f, x)/Evaluate(Derivative(f), x);
+    
+    return HenselLift(f, xprime);
+end function;
+
+//# Takes a point Q in P3(Kp) approximating a point on the Kummer surface, and Hensel
+//# lifts a coordinate to put it on the Kummer surface
+function P3toKummer(P, Kum, Kp)
+    Kpx<xkp> := PolynomialRing(Kp);
+    
+    g := DefiningPolynomial(Kum);
+    assert Valuation(Evaluate(g, P)) gt 0;
+
+    gx := Derivative(DefiningPolynomial(Kum), 1);
+    gy := Derivative(DefiningPolynomial(Kum), 2);
+    gz := Derivative(DefiningPolynomial(Kum), 3);
+    gw := Derivative(DefiningPolynomial(Kum), 4);
+
+    if Valuation(Evaluate(gx, P)) eq 0 then
+
+        h := Evaluate(g, [xkp, P[2], P[3], P[4]]);
+        return Kum![HenselLift(h, P[1]), P[2], P[3], P[4]];
+
+    elif Valuation(Evaluate(gy, P)) eq 0 then
+
+        h := Evaluate(g, [P[1], xkp, P[3], P[4]]);
+        return Kum![P[1], HenselLift(h, P[2]), P[3], P[4]];
+
+    elif Valuation(Evaluate(gz, P)) eq 0 then
+
+        h := Evaluate(g, [P[1], P[2], xkp, P[4]]);
+        return Kum![P[1], P[2], HenselLift(h, P[3]), P[4]];
+
+    else
+        assert Valuation(Evaluate(gw, P)) eq 0;
+
+        h := Evaluate(g, [P[1], P[2], P[3], xkp]);
+        return Kum![P[1], P[2], P[3], HenselLift(h, P[4])];
+    end if;
+end function;
+
+//# Takes a point P on the Kummer surface over Kp approximating an n torsion point, and
+//# Newton iterates to find the n torsion point.
+KummerToTorsion := function(P, p, m, Kum, Kp)
+    //# Find an integer multiple of n congruent to -1 mod p
+    //# This will be done with a function IntegerNegativeInverse, 
+    //# which takes n, p, and K and returns the desired integer am.
+    //# M = am+1 is the important number
+    r := Kp`DefaultPrecision;
+    num_iters := Ceiling(Log(r)/Log(2));
+    M := IntegerNegativeInverse(m, p) * m + 1;
+    
+    //# lift mod p points to desired accuracy in Kp:
+    //#  - First put them on the Kummer surface with precision 1
+    //#  - Loop:
+    //#     - Lift to some arbitrary Q' by completing two coordinates and newton iterating a third
+    //#     - Compute Q := (MQ'-[M]Q')/(M-1)
+    if Valuation(P[1]) eq 0 then
+        for i in [1..num_iters] do
+            MP := [1, M*P[2]/P[1], M*P[3]/P[1], M*P[4]/P[1]];
+            MMP := M*P;
+
+            newP1 := 1;
+            newP2 := (MP[2] - MMP[2]/MMP[1])/(M-1);
+            newP3 := (MP[3] - MMP[3]/MMP[1])/(M-1);
+            newP4 := (MP[4] - MMP[4]/MMP[1])/(M-1);
+            P := P3toKummer([newP1, newP2, newP3, newP4], Kum, Kp);
+        end for;
+
+    elif Valuation(P[2]) eq 0 then
+        for i in [1..num_iters] do
+            MP := [M*P[1]/P[2], 1, M*P[3]/P[2], M*P[4]/P[2]];
+            MMP := M*P;
+
+            newP1 := (MP[1] - MMP[1]/MMP[2])/(M-1);
+            newP2 := 1;
+            newP3 := (MP[3] - MMP[3]/MMP[2])/(M-1);
+            newP4 := (MP[4] - MMP[4]/MMP[2])/(M-1);
+            P := P3toKummer([newP1, newP2, newP3, newP4], Kum, Kp);
+        end for;
+
+    elif Valuation(P[3]) eq 0 then
+        for i in [1..num_iters] do
+            MP := [M*P[1]/P[3], M*P[2]/P[3], 1, M*P[4]/P[3]];
+            MMP := M*P;
+
+            newP1 := (MP[1] - MMP[1]/MMP[3])/(M-1);
+            newP2 := (MP[2] - MMP[2]/MMP[3])/(M-1);
+            newP3 := 1;
+            newP4 := (MP[4] - MMP[4]/MMP[3])/(M-1);
+            P := P3toKummer([newP1, newP2, newP3, newP4], Kum, Kp);
+        end for;
+
+    else
+        assert Valuation(P[3]) eq 0;
+        for i in [1..num_iters] do
+            MP := [M*P[1]/P[4], M*P[2]/P[4], M*P[3]/P[4], 1];
+            MMP := M*P;
+
+            newP1 := (MP[1] - MMP[1]/MMP[4])/(M-1);
+            newP2 := (MP[2] - MMP[2]/MMP[4])/(M-1);
+            newP4 := (MP[3] - MMP[3]/MMP[4])/(M-1);
+            newP4 := 1;
+            P := P3toKummer([newP1, newP2, newP3, newP4], Kum, Kp);
+        end for;
+
+        return 0*P;
+    end if;
+    
+    return P;
+end function;
+
+
+
+//###########################        RATIONAL LIFT       ##########################
+
+function LowHeightApproximation(P, pp, m, r, R, K, KtoKp)
+    a0 := Inverse(KtoKp)(P[1]);
+    a1 := Inverse(KtoKp)(P[2]);
+    a2 := Inverse(KtoKp)(P[3]);
+    a3 := Inverse(KtoKp)(P[4]);
+
+    L, emb := Lattice(R);
+    L4 := DirectSum([L, L, L, L]);
+
+    F, Phi := ResidueClassField(pp);
+    
+    O_seq := [0 : x in [1..AbsoluteDegree(K)]];
+
+    //# NOTE: Projective coordinates are probably only integral polynomials in the primitive element of K
+    //# this does not force them to actually be integral, if the defining polynomial of K is not monic.
+    //# Such an issue could cause a coersion to fail here.
+    //# One possible approach is to multiply through by the leading coefficient of the defining polynomial of
+    //# K, in the case that this leading coefficient is not an integer.
+    //# Instead, we just opt to require the user to use a monic defining polynomial for K.
+    coord_rep_sublattice_gens := [[Integers()!x : x in &cat[Eltseq(Inverse(Phi)(b)*R!Inverse(KtoKp)(P[i])) : i in [1..4]]] : b in Basis(F)];
+
+    prime_sublattice_gens := &cat[
+        [[Integers()!x : x in &cat[Eltseq(b), O_seq, O_seq, O_seq]],
+         [Integers()!x : x in &cat[O_seq, Eltseq(b), O_seq, O_seq]],
+         [Integers()!x : x in &cat[O_seq, O_seq, Eltseq(b), O_seq]],
+         [Integers()!x : x in &cat[O_seq, O_seq, O_seq, Eltseq(b)]]]
+            : b in Basis(pp^r)];
+    
+    gens := coord_rep_sublattice_gens cat prime_sublattice_gens;
+    
+    BL4 := Basis(L4);
+    n := #BL4;
+
+    // Express each generator in coordinates relative to Basis(L).
+    M := Matrix(Integers(), gens);
+
+    // Compute a Z-basis for the row span.
+    H := HermiteForm(M);
+
+    // Remove zero rows.
+    rows := [ H[i] : i in [1 .. Nrows(H)] | not IsZero(H[i]) ];
+
+    // Convert coordinate rows back into elements of L.
+    C := [ CoordinatesToElement(L4, row) : row in rows ];
+
+    // Now this should be a genuine sublattice of L.
+    PL := sub<L4 | C>;
+
+    v := Basis(LLL(PL))[1];
+    
+    d := Degree(K);
+    
+    a0 := L![v[i] : i in [1 .. d]];
+    a1 := L![v[i] : i in [d+1 .. 2*d]];
+    a2 := L![v[i] : i in [2*d+1 .. 3*d]];
+    a3 := L![v[i] : i in [3*d+1 .. 4*d]];
+
+    P := [K!R!Coordinates(a0), K!R!Coordinates(a1), K!R!Coordinates(a2), K!R!Coordinates(a3)];
+    
+    return P;
+end function;
+
+// Given a number field K, prime pp of K, corresponding quotient map Phi, defining polynomial f of C, 
+// a point P thereon, a sufficient lift precision r, Kp, and the map between them, the Kummer surface
+// over Fp, and the Jacobian over K, determine whether P lifts to a point on J(K). 
+// If yes, returns (true, lift). Otherwise, returns (false, 0)
+RationalLift := function(P, f, m, r, pp, Phi, R, K, Kp, KtoKp, Kumred, J)
+    Kum := KummerSurface(J);
+
+    // step 1: get point onto Kummer surface
+    P := Kumred!P;
+
+    //# Arbitrarily lift the *coordinate values* from Fp to Kp, rebuild points in P3
+    P := [KtoKp(P[i] @@ Phi) : i in[1..4]];
+
+    //# Hensel lift one coordinate to yield a point on the Kummer surface over Kp
+
+    Kpx<xkp> := PolynomialRing(Kp);
+
+    fcomp := Kpx![KtoKp(a) : a in Coefficients(f)];
+    Ccomp := HyperellipticCurve(fcomp);
+    Jcomp := Jacobian(Ccomp);
+    KumComp := KummerSurface(Jcomp);
+
+    P := P3toKummer(P, KumComp, Kp);
+
+    //# Newton iterate to get back to a torsion point. This will be done in the function KummerToTorsion
+    P := KummerToTorsion(P, pp, m, KumComp, Kp);
+
+
+    //# Use LLL to find the unique low-height K-approximation of the Kp torsion point.
+    //# This will be done using the function LowHeightApproximation
+    P := LowHeightApproximation(P, pp, m, r, R, K, KtoKp);
+    
+    try
+        P := RationalPoints(J, Kum!P)[1];
+    catch e
+        return false, 0;
+    end try;
+    
+    if m*P eq J!0 then
+        return true, P;
+    else
+        return false, 0;
+    end if;
+    
+end function;
+
+
+//#############################     GROUP SHENANIGANS       ####################################
+
+//# Given the ell torsion subgroup of a Jacobian over a finite field
+//# and a function IsInSubgroup for determining whether an element
+//# of J(Fq) lifts to J(K), compute the ell-torsion subgroup of J(K)
+ComputeSubgroup := function(G, IsTorsion, J)
+    //# Counter for number of IsInSubgroup calls
+    hard_calls := 0;
+    
+    forward InductiveSubgroup;
+    //# Initialize B to {0} and U to set of elts of G
+    //# Proceed inductively (placeholder name: foo):
+    InductiveSubgroup := procedure(B, H, IsInSubgroup, ~hard_calls, ~result)
+        //# Given set B of bad, group G, lift checker bar
+        //# Set U to be H\B
+        //# Loop over U
+        for g in H do
+            if g in B then
+                continue;
+            end if;
+        
+            //# Count this call
+            hard_calls +:= 1;
+            //# If g doesn't lift, add to bad list
+            g_good, lifted_g := IsInSubgroup(g);
+            if not(g_good) then
+                
+                for h in H do
+                    if g in sub<H | h> then
+                        Include(~B, h);
+                    end if;
+                end for;
+                
+                //Include(~B, g); // simpler alternative to the above 5ish lines. The above seems to be faster in testing
+            
+            //# If we successfully lift
+            else
+                //# Construct quotient H/<g>
+                N, phi := sub<H | g>;
+                Hprime, psi := H/N;
+                
+                //# Pass all of B down to quotient, qB
+                Bprime := {psi(b) : b in B};
+                //# new lift checker = lift checker(preimage(g)), w/ preimage going from H/<g> to H
+                IsInQuotientSubgroup := function(h)
+                    return IsInSubgroup(h @@ psi);
+                end function;
+                
+                //# return lift(g) union foo(H/<g>, qB, new lift checker)
+                subresult := {};
+                InductiveSubgroup(Bprime, Hprime, IsInQuotientSubgroup, ~hard_calls, ~subresult);
+                result := Include({<gen[1] @@ psi, gen[2]> : gen in subresult}, <g, lifted_g>);
+                return;
+            end if;
+        end for;
+                
+        //# We looped over all of U and found nothing, so we have trivial group -- return empty set
+        result := {};
+    end procedure;
+    
+    //# Call foo on {0}, G, IsInSubgroup
+    result := {};
+    InductiveSubgroup({G!0}, G, IsTorsion, ~hard_calls, ~result);
+    
+    // At this point, result contains pairs (generator of Q torsion over Fp, lift to K)
+    our_generators := [gen[1] : gen in result];
+    lifted_generators := [gen[2] : gen in result];
+    
+    // Construct subgroup T
+    T := sub<G | our_generators>;
+    
+    // Create free group on our generators
+    F := AbelianGroup([Order(g) : g in our_generators]);
+    
+    // Map them in, extract coefficients to express nice generators in terms of our generators
+    FtoT := hom<F -> T | our_generators>;
+    
+    // Scale lifts by those coeffcients to get lifts of nice generators
+    // Create map sending combo of nice generators to appropriate combo of their lifts
+    TtoJ := map<T -> J | 
+            t :-> &+[Eltseq(t)[i] * // coefficient of T.i in t
+                    &+[Eltseq(T.i @@ FtoT)[j] * lifted_generators[j] : j in [1..#our_generators]] // lift of T.i, computed from lifts of gi's
+                  : i in [1..#Generators(T)]]>;
+    
+    print "Number of IsInSubgroup calls:", hard_calls;
+
+    //# Return generators of desired subgroup and their orders
+    return T, TtoJ;
+end function;
+
+
+// Given a sequence of finite abelian groups [A_1, ..., A_n] and a sequence
+// of maps [f_1, ..., f_n] where f_i : A_i -> J (J a Jacobian of a genus 2
+// curve), construct the direct sum A = A_1 + ... + A_n together with the
+// induced map f : A -> J, (a_1,...,a_n) |-> f_1(a_1) + ... + f_n(a_n).
+//
+// Returns: A, f
+//   A           : the direct sum (a finite abelian group)
+//   f           : the induced map A -> J
+DirectSumWithMap := function(Gs, maps)
+    error if #Gs ne #maps, "Number of groups and number of maps must agree.";
+    error if #Gs lt 1,     "Need at least one group.";
+
+    // Determine the common codomain (Jacobian).
+    J := Codomain(maps[1]);
+    for i in [1..#maps] do
+        error if not (Codomain(maps[i]) cmpeq J),
+            "All maps must have the same codomain (Jacobian).";
+        error if not (Domain(maps[i]) cmpeq Gs[i]),
+            "Map does not have the given group as its domain.";
+    end for;
+
+    // Build the direct sum together with the standard inclusions/projections.
+    A, incls, projs := DirectSum(Gs);
+
+    // Construct the induced map A -> J via the universal property:
+    //   for a in A, a = sum_i incls[i](projs[i](a)),
+    //   so f(a) = sum_i maps[i](projs[i](a)).
+    induced := map< A -> J |
+        a :-> &+[ maps[i](projs[i](a)) : i in [1..#Gs] ] >;
+
+    return A, induced;
+end function;
+
+
+
+//#######################      MAIN      #######################
+
+TorsionSubgroup := function(J)
+    //# 1. get necessary info out of J
+    //# Specifically, define the number field K, a polynomial ring Kx thereover,
+    //# and the defining polynomial f in Kx of J
+    K := BaseField(J);
+    assert Type(K) eq FldNum;
+    R := RingOfIntegers(K);
+    
+    Kx<xk> := PolynomialRing(K);
+    Rx<xr> := PolynomialRing(R);
+    
+    //# Your defining equation for J must have integral coefficients. I'm not dealing with the headache
+    //# of reducing fractions mod primes.
+    fr := -Evaluate(DefiningEquation(Curve(J)), [xr, 0, 1]);
+    fk := -Evaluate(DefiningEquation(Curve(J)), [xk, 0, 1]);
+    C := HyperellipticCurve(fk);
+    
+    //# 2. get torsion height bound, using HeightBound function - takes f and K,
+    //# spits back a real number b
+    b := HeightBound(fr, K);
+    
+    //# 3. Get torsion order bound n, using the built in TorsionBound function on J and 100.
+    //# 4. Using BoundGenerators, obtain generators for various ell-torsion across valuable primes, 
+    //# the rational lifts among which generate the torsion subgroup
+    generator_packages := BoundGenerators(J, C, fr, Rx, R, 100);
+    
+    
+    two_tors, two_tors_inclusion := TwoTorsionSubgroup(J);
+    
+    ell_torsion_subgroups := [two_tors];
+    ell_torsion_inclusions := [* two_tors_inclusion *];
+    
+    
+    //# For each prime ell dividing n:
+    for package in generator_packages do
+        pp := package[1];
+        Phi := package[2];
+        abstract_ell_group := package[3];
+        inclusion_map := package[4];
+        Jred := package[5];
+        
+        //# Determine the Kp accuracy at which K-points within height bound b reduce injectively 
+        //# (really, we will determine a slightly larger number, one that will ensure LLL gives 
+        //# the lowest height representative)
+        r := RequiredAccuracy(K, Norm(pp), b);
+        
+        //# In body, construct Kp with default precision r
+        Kp, KtoKp := Completion(K, pp : Precision := r);
+        
+        Kumred := KummerSurface(Jred);
+        
+        LiftCheck := function(g) // g is an element of the abstract ell group
+            P := inclusion_map(g);
+            return RationalLift(P, fk, Order(g), r, pp, Phi, R, K, Kp, KtoKp, Kumred, J);
+        end function;
+        
+        real_ell_torsion, ell_tors_inclusion := ComputeSubgroup(abstract_ell_group, LiftCheck, J);
+        
+        Append(~ell_torsion_subgroups, real_ell_torsion);
+        Append(~ell_torsion_inclusions, ell_tors_inclusion);
+    end for;
+    
+    return DirectSumWithMap(ell_torsion_subgroups, ell_torsion_inclusions);
+end function;
