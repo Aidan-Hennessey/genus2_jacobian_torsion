@@ -56,6 +56,8 @@ function PairDiscriminant(pair)
     // Starting acc as below counterbalances that normalization appropriately
     acc := (LeadingCoefficient(pair[2])*LeadingCoefficient(pair[1]))^3;
     
+    // the repeated factoring of cubics in this double for-loop
+    // wastes a surprising amount of time. Something to fix soon.
     for ai in MultisetToSequence(Roots(pair[1])) do
         for aj in MultisetToSequence(Roots(pair[2])) do
             // beta_i=0 terms are skipped in the degree 5 case, but 
@@ -190,7 +192,7 @@ end function;
 
 GetBoundGenerators := function(J, C, f, Rx, R, ell, order, n)
     for p in PrimesUpTo(n) do
-        if p eq 2 or p eq 3 then
+        if p eq 2 or p eq 3 or p eq ell then // why am I excluding 2 and 3 again?
             continue;
         end if;
         for tup in Decomposition(R, p) do
@@ -215,7 +217,7 @@ GetBoundGenerators := function(J, C, f, Rx, R, ell, order, n)
             end if;
         end for;
     end for;
-    print "Uh oh! Didn't achieve our bound!";
+    print "Uh oh! Didn't achieve our bound!"; // Indicates a bug in the program
     return [**];
 end function;
 
@@ -234,11 +236,9 @@ BoundGenerators := function(J, C, f, Rx, R, n)
     generators := [**];
     
     for i in [1..#ells] do
-        if ells[i] ne 2 then //# we handle 2-torsion separately
-            print("checking for torsion of characteristic");
-            ells[i];
-            Append(~generators, GetBoundGenerators(J, C, f, Rx, R, ells[i], factors[i], n));
-        end if;
+        print("checking for torsion of characteristic");
+        ells[i];
+        Append(~generators, GetBoundGenerators(J, C, f, Rx, R, ells[i], factors[i], n));
     end for;
     return generators;
 end function;
@@ -254,8 +254,11 @@ IntegerNegativeInverse := function(n, p)
     return Integers()!(-(Zmodp!n)^(-1));
 end function;
 
-// FINE, I'll do it myself
-HenselLift := function(f, x)
+// Magma's Hensel lift function kept giving me these silly
+// ``hensel lifting condition not satisfied" errors that
+// I believe are the result of a bug in Magma's implementation.
+// This is a simple implementation that handles the cases I need.
+function HenselLift2(f, x)
     if IsZero(Evaluate(f, x)) then
         return x;
     end if;
@@ -265,7 +268,7 @@ HenselLift := function(f, x)
     
     xprime := x - Evaluate(f, x)/Evaluate(Derivative(f), x);
     
-    return HenselLift(f, xprime);
+    return HenselLift2(f, xprime);
 end function;
 
 //# Takes a point Q in P3(Kp) approximating a point on the Kummer surface, and Hensel
@@ -284,23 +287,23 @@ function P3toKummer(P, Kum, Kp)
     if Valuation(Evaluate(gx, P)) eq 0 then
 
         h := Evaluate(g, [xkp, P[2], P[3], P[4]]);
-        return Kum![HenselLift(h, P[1]), P[2], P[3], P[4]];
+        return Kum![HenselLift2(h, P[1]), P[2], P[3], P[4]];
 
     elif Valuation(Evaluate(gy, P)) eq 0 then
 
         h := Evaluate(g, [P[1], xkp, P[3], P[4]]);
-        return Kum![P[1], HenselLift(h, P[2]), P[3], P[4]];
+        return Kum![P[1], HenselLift2(h, P[2]), P[3], P[4]];
 
     elif Valuation(Evaluate(gz, P)) eq 0 then
 
         h := Evaluate(g, [P[1], P[2], xkp, P[4]]);
-        return Kum![P[1], P[2], HenselLift(h, P[3]), P[4]];
+        return Kum![P[1], P[2], HenselLift2(h, P[3]), P[4]];
 
     else
         assert Valuation(Evaluate(gw, P)) eq 0;
 
         h := Evaluate(g, [P[1], P[2], P[3], xkp]);
-        return Kum![P[1], P[2], P[3], HenselLift(h, P[4])];
+        return Kum![P[1], P[2], P[3], HenselLift2(h, P[4])];
     end if;
 end function;
 
@@ -408,6 +411,8 @@ function LowHeightApproximation(P, pp, m, r, R, K, KtoKp)
             : b in Basis(pp^r)];
     
     gens := coord_rep_sublattice_gens cat prime_sublattice_gens;
+
+    // The next approximately 20 lines were written with the help of Claude.
     
     BL4 := Basis(L4);
     n := #BL4;
@@ -448,6 +453,22 @@ end function;
 RationalLift := function(P, f, m, r, pp, Phi, R, K, Kp, KtoKp, Kumred, J)
     Kum := KummerSurface(J);
 
+    if m eq 1 then 
+        return true, J!0;
+    elif m eq 2 then
+        // For Jacobians with lots of 2-power torsion, the following call may run 
+        // as many as 5-10 times. When I get around to it I will rewrite this code
+        // so that TwoTorsionSubgroup is called at most once.
+        T2, phi2 := TwoTorsionSubgroup(J);
+        for Q_abstract in T2 do
+            Q := phi2(Q_abstract);
+            if Kumred!P eq Kumred!Kum!Q then
+                return true, Q;
+            end if;
+        end for;
+        return false, 0;
+    end if;
+
     // step 1: get point onto Kummer surface
     P := Kumred!P;
 
@@ -458,6 +479,7 @@ RationalLift := function(P, f, m, r, pp, Phi, R, K, Kp, KtoKp, Kumred, J)
 
     Kpx<xkp> := PolynomialRing(Kp);
 
+    // We use the suffix comp for the basechange to the completion Kp.
     fcomp := Kpx![KtoKp(a) : a in Coefficients(f)];
     Ccomp := HyperellipticCurve(fcomp);
     Jcomp := Jacobian(Ccomp);
@@ -500,6 +522,9 @@ ComputeSubgroup := function(G, IsTorsion, J)
     forward InductiveSubgroup;
     //# Initialize B to {0} and U to set of elts of G
     //# Proceed inductively (placeholder name: foo):
+    // This piece of code was originally a function, but implementing the
+    // hard calls counter required refactoring into a procedure. The 
+    // refactoring was done with the help of Claude.
     InductiveSubgroup := procedure(B, H, IsInSubgroup, ~hard_calls, ~result)
         //# Given set B of bad, group G, lift checker bar
         //# Set U to be H\B
@@ -578,7 +603,7 @@ ComputeSubgroup := function(G, IsTorsion, J)
     return T, TtoJ;
 end function;
 
-
+// A good first draft of the following function was written by Claude.
 // Given a sequence of finite abelian groups [A_1, ..., A_n] and a sequence
 // of maps [f_1, ..., f_n] where f_i : A_i -> J (J a Jacobian of a genus 2
 // curve), construct the direct sum A = A_1 + ... + A_n together with the
@@ -633,20 +658,20 @@ TorsionSubgroup := function(J)
     fk := -Evaluate(DefiningEquation(Curve(J)), [xk, 0, 1]);
     C := HyperellipticCurve(fk);
     
-    //# 2. get torsion height bound, using HeightBound function - takes f and K,
-    //# spits back a real number b
-    b := HeightBound(fr, K);
-    
     //# 3. Get torsion order bound n, using the built in TorsionBound function on J and 100.
     //# 4. Using BoundGenerators, obtain generators for various ell-torsion across valuable primes, 
     //# the rational lifts among which generate the torsion subgroup
     generator_packages := BoundGenerators(J, C, fr, Rx, R, 100);
+
+    // if there are no local points to lift, then we don't need to compute the height bound
+    if generator_packages neq [**] then 
+        //# 2. get torsion height bound, using HeightBound function - takes f and K,
+        //# spits back a real number b
+        b := HeightBound(fr, K);
+    end if;
     
-    
-    two_tors, two_tors_inclusion := TwoTorsionSubgroup(J);
-    
-    ell_torsion_subgroups := [two_tors];
-    ell_torsion_inclusions := [* two_tors_inclusion *];
+    ell_torsion_subgroups := [];
+    ell_torsion_inclusions := [**];
     
     
     //# For each prime ell dividing n:
