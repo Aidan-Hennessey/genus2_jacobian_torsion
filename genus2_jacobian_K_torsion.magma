@@ -1,65 +1,14 @@
 //#########################         NUMBER FIELD HEIGHT BOUNDS           ###########################
 
-// Input: a sequence or set of 2-tuples (item, count) encoding a multiset
-// Output: A sequence obtained by unwrapping the multiset into its individual elements
-MultisetToSequence := function(multiset)
-    items := [];
-    for multiitem in multiset do
-        items := items cat [multiitem[1] : x in [1..multiitem[2]]];
-    end for;
-    return items;
-end function;
-
-// Given a degree 6 polynomial, returns all factorizations of it into cubics
-CubicPairs6 := function(f)
-    P<x> := PolynomialRing(ComplexField(20));
-
-    roots_w_mult := Roots(f);
-    roots := MultisetToSequence(roots_w_mult);
-    
-    pairs := [];
-    for j in [2..5] do
-        for k in [j+1..6] do
-            sigma_f := (x-roots[1])*(x-roots[j])*(x-roots[k]);
-            tau_f, r := Quotrem(f, sigma_f);
-            
-            Append(~pairs, <sigma_f, tau_f>);
-        end for;
-    end for;
-    return pairs;
-end function;
-
-// Given a degree 5 polynomial, returns all factorizations of it into cubics
-CubicPairs5 := function(f)
-    P<x> := PolynomialRing(ComplexField(20));
-    
-    roots_w_mult := Roots(f);
-    roots := MultisetToSequence(roots_w_mult);
-    
-    pairs := [];
-    for i in [1..3] do
-        for j in [i+1..4] do
-            for k in [j+1..5] do
-                sigma_f := (x-roots[i])*(x-roots[j])*(x-roots[k]);
-                tau_f, r := Quotrem(f, sigma_f);
-                Append(~pairs, <sigma_f, tau_f>);
-            end for;
-        end for;
-    end for;
-    return pairs;
-end function;
-
 // This calculates the quantity R which is used in formulas 10.3 and 10.4 of Stoll's paper
 // It miraculously works for both degree 5 and degree 6 polynomials without separate casework
-function PairDiscriminant(pair)
+function PairDiscriminant2(pair)
     // We are going to factor out leading terms to make the two polynomials monic
     // Starting acc as below counterbalances that normalization appropriately
-    acc := (LeadingCoefficient(pair[2])*LeadingCoefficient(pair[1]))^3;
+    acc := pair[1]^3;
     
-    // the repeated factoring of cubics in this double for-loop
-    // wastes a surprising amount of time. Something to fix soon.
-    for ai in MultisetToSequence(Roots(pair[1])) do
-        for aj in MultisetToSequence(Roots(pair[2])) do
+    for ai in pair[2] do
+        for aj in pair[3] do
             // beta_i=0 terms are skipped in the degree 5 case, but 
             // *because we normalized to monic*, they would only induce 
             // multiplication by 1, so that is fine. 
@@ -72,37 +21,56 @@ end function;
 
 // Computes the a_(i, {S, S'})'s in equation 7.1 of Stoll's paper, 
 // for a fixed factorization into cubics
-Ai := function(pair)
+Ai2 := function(pair)
+    P<x> := PolynomialRing(ComplexField());
+
+    lead := pair[1];
+    f1 := lead * &*[x - a : a in pair[2]];
+    f2 := &*[x - a : a in pair[3]];
+
     // recall that the index on sigma indicates the power of Z, not the power of X
-    sigma3 := Coefficient(pair[1], 0);
-    sigma2 := Coefficient(pair[1], 1);
-    sigma1 := Coefficient(pair[1], 2);
-    sigma0 := Coefficient(pair[1], 3);
-    tau3 := Coefficient(pair[2], 0);
-    tau2 := Coefficient(pair[2], 1);
-    tau1 := Coefficient(pair[2], 2);
-    tau0 := Coefficient(pair[2], 3);
-    R := PairDiscriminant(pair);
+    sigma3 := Coefficient(f1, 0);
+    sigma2 := Coefficient(f1, 1);
+    sigma1 := Coefficient(f1, 2);
+    sigma0 := Coefficient(f1, 3);
+    tau3 := Coefficient(f2, 0);
+    tau2 := Coefficient(f2, 1);
+    tau1 := Coefficient(f2, 2);
+    tau0 := Coefficient(f2, 3);
+    R := PairDiscriminant2(pair);
     
     a1 := -1/(4*R) * (sigma1*tau0 - sigma0*tau1);
     a2 := -1/(4*R) * (sigma3*tau0 - sigma0*tau3 + sigma2*tau1 - sigma1*tau2);
     a3 := -1/(4*R) * (sigma3*tau2 - sigma2*tau3);
-    a4 := -1/(4*R) * (sigma1*sigma3^2*tau0^2*tau2 - sigma0^2*sigma2*tau1*tau3^2 + sigma1*sigma2*tau1*tau2*(sigma3*tau0 - sigma0*tau3)- sigma3*tau3*(sigma1*sigma2*tau0^2 - sigma0^2*tau1*tau2) - sigma1*tau1*(sigma2^2*tau0*tau3 - sigma0*sigma3*tau2^2)- sigma1^2*sigma3*tau0*tau2^2 + sigma0*sigma2^2*tau1^2*tau3 + 4*sigma1*sigma3*tau1*tau3*(sigma1*tau0 - sigma0*tau1)+ sigma2*tau2*(sigma1^2*tau0*tau3 - sigma0*sigma3*tau1^2) - sigma0*tau0*(sigma3^2*tau1*tau2 + tau3^2*sigma1*sigma2)+ sigma0*tau0*(4*sigma3*tau3*(sigma3*tau0 - sigma0*tau3) + 4*sigma2*tau2*(sigma3*tau2 - sigma2*tau3)- 3*sigma3*tau3*(sigma2*tau1 - sigma1*tau2)));
+    
+    // In the formula for a4 in Stoll's paper, there is a term that goes sigma3^2*tau1*tau2 + tau3^2*sigma1*sigma2.
+    // This is not anti symmetric in sigma and tau, so one can only assume that it is a typo.
+    // It is not clear which term is negated in the correct formula. To be safe, we compute both possibilities
+    // and take the one with larger absolute value (the final height bound is monotonically increasing in |a4|).
+    a41 := -1/(4*R) * (sigma1*sigma3^2*tau0^2*tau2 - sigma0^2*sigma2*tau1*tau3^2 + sigma1*sigma2*tau1*tau2*(sigma3*tau0 - sigma0*tau3)- sigma3*tau3*(sigma1*sigma2*tau0^2 - sigma0^2*tau1*tau2) - sigma1*tau1*(sigma2^2*tau0*tau3 - sigma0*sigma3*tau2^2)- sigma1^2*sigma3*tau0*tau2^2 + sigma0*sigma2^2*tau1^2*tau3 + 4*sigma1*sigma3*tau1*tau3*(sigma1*tau0 - sigma0*tau1)+ sigma2*tau2*(sigma1^2*tau0*tau3 - sigma0*sigma3*tau1^2) - sigma0*tau0*(sigma3^2*tau1*tau2 - tau3^2*sigma1*sigma2)+ sigma0*tau0*(4*sigma3*tau3*(sigma3*tau0 - sigma0*tau3) + 4*sigma2*tau2*(sigma3*tau2 - sigma2*tau3)- 3*sigma3*tau3*(sigma2*tau1 - sigma1*tau2)));
+    a42 := -1/(4*R) * (sigma1*sigma3^2*tau0^2*tau2 - sigma0^2*sigma2*tau1*tau3^2 + sigma1*sigma2*tau1*tau2*(sigma3*tau0 - sigma0*tau3)- sigma3*tau3*(sigma1*sigma2*tau0^2 - sigma0^2*tau1*tau2) - sigma1*tau1*(sigma2^2*tau0*tau3 - sigma0*sigma3*tau2^2)- sigma1^2*sigma3*tau0*tau2^2 + sigma0*sigma2^2*tau1^2*tau3 + 4*sigma1*sigma3*tau1*tau3*(sigma1*tau0 - sigma0*tau1)+ sigma2*tau2*(sigma1^2*tau0*tau3 - sigma0*sigma3*tau1^2) - sigma0*tau0*(-sigma3^2*tau1*tau2 + tau3^2*sigma1*sigma2)+ sigma0*tau0*(4*sigma3*tau3*(sigma3*tau0 - sigma0*tau3) + 4*sigma2*tau2*(sigma3*tau2 - sigma2*tau3)- 3*sigma3*tau3*(sigma2*tau1 - sigma1*tau2)));
+    a4 := Max(Abs(a41), Abs(a42));
     
     return [a1, a2, a3, a4];
 end function;
 
 // Computes the b_({S, S'}, j)'s in formula 7.1
-Bj := function(pair)
+Bj2 := function(pair)
+    P<x> := PolynomialRing(ComplexField());
+
+    lead := pair[1];
+    f1 := lead * &*[x - a : a in pair[2]];
+    f2 := &*[x - a : a in pair[3]];
+
     // recall that the index on sigma indicates the power of Z, not the power of X
-    sigma3 := Coefficient(pair[1], 0);
-    sigma2 := Coefficient(pair[1], 1);
-    sigma1 := Coefficient(pair[1], 2);
-    sigma0 := Coefficient(pair[1], 3);
-    tau3 := Coefficient(pair[2], 0);
-    tau2 := Coefficient(pair[2], 1);
-    tau1 := Coefficient(pair[2], 2);
-    tau0 := Coefficient(pair[2], 3);
+    sigma3 := Coefficient(f1, 0);
+    sigma2 := Coefficient(f1, 1);
+    sigma1 := Coefficient(f1, 2);
+    sigma0 := Coefficient(f1, 3);
+    tau3 := Coefficient(f2, 0);
+    tau2 := Coefficient(f2, 1);
+    tau1 := Coefficient(f2, 2);
+    tau0 := Coefficient(f2, 3);
     
     b0 := -((sigma3*tau0 + sigma0*tau3)^2 + 2*(sigma1*sigma2*tau0*tau3 + sigma0*sigma3*tau1*tau2)+ 3*(sigma1*sigma3*tau0*tau2 + sigma0*sigma2*tau1*tau3) + 5*(sigma2*sigma3*tau0*tau1 + sigma0*sigma1*tau2*tau3));
     b1 := sigma3*tau1 + sigma1*tau3;
@@ -118,11 +86,7 @@ BoundFromAisBjs := function(ais, bjs)
     for i in [1..4] do
         ibound := 0;
         for ssprime in [1..#ais] do
-            bterm := 0;
-            for j in [0..4] do
-                bterm := bterm + Abs(bjs[ssprime][j+1]); // j+1 because magma sequences are 1-indexed
-            end for;
-            bterm := Sqrt(bterm);
+            bterm := Sqrt(&+[Abs(bj) : bj in bjs[ssprime]]);
             ibound := ibound + Abs(ais[ssprime][i])*bterm;
         end for;
         ibound := ibound^2;
@@ -133,29 +97,35 @@ end function;
 
 // Complex embeddings of a polynomial f(x) in K[x] for K a number field
 Embeddings := function(f, K)
-    return [PolynomialRing(ComplexField(20))![Conjugate(alpha, i) : alpha in Coefficients(PolynomialRing(K)!f)] : i in [1..Degree(K)]];
+    return [PolynomialRing(ComplexField())![Conjugate(alpha, i) : alpha in Coefficients(PolynomialRing(K)!f)] : i in [1..Degree(K)]];
 end function;
 
 // Given a degree 5 or 6 polynomial with coefficients in O_K, 
 // computes the contibution of the infinite places of K to the 
 // bound on the naive height of torsion on the Jacobian of the 
 // associated curve
-InfiniteContribution := function(f, K)
+InfiniteContribution2 := function(f, K)
     sum := 0;
     
     for f_emb in Embeddings(f, K) do
+        roots := SequenceToSet([r[1] : r in Roots(f_emb)]); // magma gives sequence of <root, multiplicity> pairs
+        lead := Coefficient(f_emb, Degree(f_emb));
     
-        if Degree(f_emb) eq 5 then
-            pairs := CubicPairs5(f_emb);
+        first_halves := Subsets(roots, 3);
+        
+        if Degree(f) eq 6 then
+            distinguished_root := Random(roots);
+            pairs := {<lead, H1, roots diff H1> : H1 in first_halves | distinguished_root in H1};
         else
-            pairs := CubicPairs6(f_emb);
+            // for degree 5, we let infinity play the role of the disinguished root
+            pairs := {<lead, H1, roots diff H1> : H1 in first_halves};
         end if;
 
         AllAs := [];
         AllBs := [];
         for pair in pairs do
-            Append(~AllAs, Ai(pair));
-            Append(~AllBs, Bj(pair));
+            Append(~AllAs, Ai2(pair));
+            Append(~AllBs, Bj2(pair));
         end for;
         
         sum := sum + Log(BoundFromAisBjs(AllAs, AllBs));
@@ -164,8 +134,11 @@ InfiniteContribution := function(f, K)
     return sum;
 end function;
 
-function HeightBound(f, K)
-    return 4/3*Log(2)*Degree(K)-2*Log(Norm(ideal<MaximalOrder(K) | Coefficients(f)>)) + 1/3*Log(Abs(Norm(K!Discriminant(f)))) + 1/3*InfiniteContribution(f, K);
+// Given a squarefree polynomial f of degree 5 or 6 defined over a number ring R with field of fractions K,
+// computes a bound on the height of torsion defined over extensions of (relative) degree at most d for the 
+// Jacobian of the curve y^2=f(x).
+function HeightBound2(f, d, R, K)
+    return 4/3*Log(2)*d*Degree(K)-2*Log(Norm(ideal<R | Coefficients(f)>)) + 1/3*d*Log(Abs(Norm(K!Discriminant(f)))) + 1/3*d*InfiniteContribution2(f, K);
 end function;
 
 //# Consumes a number field K, the norm q of the relevant prime, and the torsion height bound b
@@ -377,7 +350,6 @@ KummerToTorsion := function(P, p, m, Kum, Kp)
     
     return P;
 end function;
-
 
 
 //###########################        RATIONAL LIFT       ##########################
@@ -663,12 +635,15 @@ TorsionSubgroup := function(J)
     //# the rational lifts among which generate the torsion subgroup
     generator_packages := BoundGenerators(J, C, fr, Rx, R, 100);
 
-    // if there are no local points to lift, then we don't need to compute the height bound
-    if generator_packages neq [**] then 
-        //# 2. get torsion height bound, using HeightBound function - takes f and K,
-        //# spits back a real number b
-        b := HeightBound(fr, K);
+    // if there are no local points to lift, then we're done
+    if #generator_packages eq 0 then 
+        A := AbelianGroup([]);
+        return A, map<A -> J | a :-> J!0>;
     end if;
+    
+    //# 2. get torsion height bound, using HeightBound function - takes f and K,
+    //# spits back a real number b
+    b := HeightBound2(fr, 1, R, K);
     
     ell_torsion_subgroups := [];
     ell_torsion_inclusions := [**];
