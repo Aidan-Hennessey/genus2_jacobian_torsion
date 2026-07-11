@@ -21,10 +21,11 @@ JK := BaseChange(J, K);
 TorsionSubgroup(JK);
 ```
 
-Based on (limited) speed testing, the function seems to take a few tenths of a second for reasonable examples.
+Based on (limited) speed testing, the function seems to take microseconds if there is a local obstruction to having any torsion, and a few tenths of a second for reasonable non-trivial examples.
 There are some optimizations left to make; these are highlighted in inline comments. The function is based on 
 the existing algorithm to compute the torsion subgroup over $\mathbb{Q}$. An outline of that algorithm can be found in 
-[this paper](http://matwbn.icm.edu.pl/ksiazki/aa/aa90/aa9026.pdf) of Stoll.
+[this paper](http://matwbn.icm.edu.pl/ksiazki/aa/aa90/aa9026.pdf) of Stoll. For details specific to this implmentation,
+see [this paper](https://aidan-hennessey.github.io/Mod5Galois.pdf), in particular sections 1.4, 2, and 3.2.2.
 
 Code to compute the same thing can also be found in [this repo](https://github.com/MaxPosthumus/MasterProject/tree/main). 
 That implementation corresponds to [Max Posthumus's masters thesis](https://fse.studenttheses.ub.rug.nl/31630/1/mMATH_2023_PosthumusM.pdf). My implementation was developed without knowledge of Posthumus's work.
